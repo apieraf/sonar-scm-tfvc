@@ -19,24 +19,32 @@
  */
 package org.sonar.plugins.scm.tfs;
 
+import ch.qos.logback.classic.Logger;
+import org.fest.util.Collections;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.mockito.Mockito;
+import org.slf4j.LoggerFactory;
 import org.sonar.api.batch.fs.InputFile;
 import org.sonar.api.batch.fs.internal.DefaultInputFile;
 import org.sonar.api.batch.scm.BlameCommand.BlameInput;
 import org.sonar.api.batch.scm.BlameCommand.BlameOutput;
 import org.sonar.api.batch.scm.BlameLine;
+import org.sonar.plugins.scm.tfs.helpers.TestAppender;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Date;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static java.util.Arrays.asList;
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.core.Is.is;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.*;
 
 public class TfsBlameCommandTest {
 
@@ -44,6 +52,20 @@ public class TfsBlameCommandTest {
   public ExpectedException thrown = ExpectedException.none();
 
   private final TfsConfiguration conf = mock(TfsConfiguration.class);
+
+  private TestAppender appender;
+
+  @Before
+  public  void Setup(){
+    appender = new TestAppender();
+
+    getRootLogger().addAppender(appender);
+  }
+
+  @After
+  public void tearDown() {
+    getRootLogger().detachAppender(appender);
+  }
 
   @Test
   public void ok() throws IOException {
@@ -62,9 +84,11 @@ public class TfsBlameCommandTest {
 
     verify(output).blameResult(
       inputFile,
-      Arrays.asList(
+      asList(
         new BlameLine().date(new Date(1430736199000L)).revision("26274").author("SND\\DinSoft_cp"),
         new BlameLine().date(new Date(1430736200000L)).revision("26275").author("SND\\DinSoft_cp")));
+
+    Collections.isEmpty(appender.getErrorEvents());
   }
 
   @Test
@@ -85,10 +109,12 @@ public class TfsBlameCommandTest {
 
     verify(output).blameResult(
       inputFile,
-      Arrays.asList(
+      asList(
         new BlameLine().date(new Date(1430736199000L)).revision("26274").author("SND\\DinSoft_cp"),
         new BlameLine().date(new Date(1430736200000L)).revision("26275").author("SND\\DinSoft_cp"),
         new BlameLine().date(new Date(1430736200000L)).revision("26275").author("SND\\DinSoft_cp")));
+
+    Collections.isEmpty(appender.getErrorEvents());
   }
 
   @Test
@@ -107,6 +133,8 @@ public class TfsBlameCommandTest {
     command.blame(input, output);
 
     verify(output, Mockito.never()).blameResult(Mockito.any(InputFile.class), Mockito.anyList());
+
+    Collections.isEmpty(appender.getErrorEvents());
   }
 
   @Test
@@ -144,4 +172,25 @@ public class TfsBlameCommandTest {
     command.blame(input, mock(BlameOutput.class));
   }
 
+  @Test
+  public void read_error_stream(){
+    File executable = new File("src/test/resources/error_stream.bat");
+    TfsBlameCommand command = new TfsBlameCommand(conf, executable);
+    boolean isExceptionThrown = false;
+
+    try {
+      command.blame(mock(BlameInput.class), mock(BlameOutput.class));
+    }
+    catch (RuntimeException e) {
+      isExceptionThrown = true;
+    }
+
+    assertTrue(isExceptionThrown);
+    assertThat(appender.getErrorEvents(), is(asList("error stream string 1\r\nerror stream string 2\r\n")));
+  }
+
+  private static Logger getRootLogger() {
+    Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
+    return rootLogger.getLoggerContext().getLogger(Logger.ROOT_LOGGER_NAME);
+  }
 }
